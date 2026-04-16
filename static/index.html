@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OpenCode Voice Chat</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background-color: #f4f4f9; }
+        .chat-container { border-radius: 12px; background: white; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .status { color: #888; margin: 10px 0; font-size: 0.9em; display: flex; justify-content: space-between; align-items: center; }
+        .controls { display: flex; flex-direction: column; align-items: center; gap: 15px; margin-top: 20px; }
+        button { background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1.1em; cursor: pointer; transition: background 0.2s; width: 100%; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        button.recording { background: #dc3545; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        .message-log { margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px; height: 400px; overflow-y: auto; display: flex; flex-direction: column-reverse; }
+        .message { margin-bottom: 15px; padding: 10px; border-radius: 8px; border-left: 4px solid transparent; width: fit-content; max-width: 80%; }
+        .user { background: #eef; border-left-color: #007bff; align-self: flex-start; }
+        .agent { background: #fdfdfd; border-left-color: #28a745; align-self: flex-end; }
+        .audio-player { width: 100%; margin-top: 5px; }
+        canvas { width: 100%; height: 60px; background: #eee; border-radius: 8px; margin-top: 10px; }
+        .timer { font-family: monospace; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <h1>OpenCode Voice</h1>
+        <div class="status">
+            <span id="statusText">Ready to chat...</span>
+            <span id="timer" class="timer">00:00</span>
+        </div>
+        
+        <canvas id="visualizer"></canvas>
+
+        <div class="controls">
+            <button id="recordBtn">Start Speaking</button>
+            <button id="exportBtn" style="background: #6c757d; padding: 8px; font-size: 0.9em; margin-top: 5px;">Export Conversation</button>
+        </div>
+
+        <div id="log" class="message-log"></div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioContext;
+        let analyser;
+        let animationId;
+        let startTime;
+        let timerInterval;
+
+        const recordBtn = document.getElementById('recordBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        const statusDiv = document.getElementById('statusText');
+        
+        loadHistory();
+
+        exportBtn.addEventListener('click', exportHistory);
+        const timerDiv = document.getElementById('timer');
+        const logDiv = document.getElementById('log');
+        const canvas = document.getElementById('visualizer');
+        const canvasCtx = canvas.getContext('2d');
+
+        // Load History on Startup
+        async function loadHistory() {
+            try {
+                const res = await fetch('/history');
+                const history = await res.json();
+                logDiv.innerHTML = ""; // Clear for refresh
+                history.forEach(msg => {
+                    addMessage(msg.role === 'user' ? 'You' : 'OpenCode', msg.content, msg.audio_url);
+                });
+            } catch (err) { console.error("Failed to load history:", err); }
+        }
+
+        async function exportHistory() {
+            try {
+                const res = await fetch('/history');
+                const history = await res.json();
+                let text = "OpenCode Voice Chat Export\n==========================\n\n";
+                history.forEach(msg => {
+                    const time = new Date(msg.timestamp * 1000).toLocaleString();
+                    text += `[${time}] ${msg.role.toUpperCase()}:\n${msg.content}\n\n`;
+                });
+                
+                const blob = new Blob([text], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `voice_chat_export_${new Date().getTime()}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (err) { alert("Export failed: " + err); }
+        }
+
+        function updateTimer() {
+            const now = Date.now();
+            const diff = Math.floor((now - startTime) / 1000);
+            const mins = Math.floor(diff / 60).toString().padStart(2, '0');
+            const secs = (diff % 60).toString().padStart(2, '0');
+            timerDiv.textContent = `${mins}:${secs}`;
+        }
+
+        function visualize() {
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            const draw = () => {
+                animationId = requestAnimationFrame(draw);
+                analyser.getByteTimeDomainData(dataArray);
+
+                canvasCtx.fillStyle = '#f4f4f9';
+                canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+                canvasCtx.lineWidth = 2;
+                canvasCtx.strokeStyle = '#007bff';
+                canvasCtx.beginPath();
+
+                const sliceWidth = canvas.width * 1.0 / bufferLength;
+                let x = 0;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = v * canvas.height / 2;
+                    if (i === 0) canvasCtx.moveTo(x, y);
+                    else canvasCtx.lineTo(x, y);
+                    x += sliceWidth;
+                }
+                canvasCtx.lineTo(canvas.width, canvas.height / 2);
+                canvasCtx.stroke();
+            };
+            draw();
+        }
+
+        recordBtn.addEventListener('click', async () => {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+                cancelAnimationFrame(animationId);
+                clearInterval(timerInterval);
+                recordBtn.textContent = "Processing...";
+                recordBtn.classList.remove('recording');
+                recordBtn.disabled = true;
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                source.connect(analyser);
+                visualize();
+
+                const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+                                 ? 'audio/webm;codecs=opus' 
+                                 : 'audio/ogg;codecs=opus';
+                
+                mediaRecorder = new MediaRecorder(stream, { mimeType });
+                audioChunks = [];
+                mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunks.push(event.data); };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: mimeType });
+                    const formData = new FormData();
+                    const extension = mimeType.includes('webm') ? 'webm' : 'ogg';
+                    formData.append('file', audioBlob, `recording.${extension}`);
+
+                    statusDiv.textContent = "Uploading...";
+                    try {
+                        const response = await fetch('/upload', { method: 'POST', body: formData });
+                        const data = await response.json();
+                        pollStatus(data.session_id);
+                    } catch (err) {
+                        statusDiv.textContent = "Upload failed.";
+                        recordBtn.disabled = false;
+                        recordBtn.textContent = "Start Speaking";
+                    }
+                    stream.getTracks().forEach(track => track.stop());
+                    if (audioContext) audioContext.close();
+                };
+
+                mediaRecorder.start();
+                startTime = Date.now();
+                timerInterval = setInterval(updateTimer, 1000);
+                recordBtn.textContent = "Finish Speaking";
+                recordBtn.classList.add('recording');
+                statusDiv.textContent = "Listening...";
+            } catch (err) {
+                console.error("Microphone access denied:", err);
+                statusDiv.textContent = "Error: Mic access denied.";
+            }
+        });
+
+        async function pollStatus(sessionId) {
+            statusDiv.textContent = "OpenCode is thinking...";
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/status/${sessionId}`);
+                    const data = await res.json();
+                    if (data.status === 'completed') {
+                        clearInterval(interval);
+                        statusDiv.textContent = "Ready.";
+                        recordBtn.textContent = "Start Speaking";
+                        recordBtn.disabled = false;
+                        // Add User message first (usually it's already in history if we refresh, but let's refresh UI)
+                        // For simplicity, we just reload the history to ensure order
+                        logDiv.innerHTML = "";
+                        loadHistory();
+                    }
+                } catch (err) { console.error("Polling error:", err); }
+            }, 1000);
+        }
+
+        function addMessage(sender, text, audioUrl) {
+            const div = document.createElement('div');
+            div.className = `message ${sender === 'You' ? 'user' : 'agent'}`;
+            div.innerHTML = `<strong>${sender}:</strong> <div>${text}</div>`;
+            if (audioUrl) {
+                const audio = document.createElement('audio');
+                audio.controls = true;
+                audio.className = 'audio-player';
+                audio.src = audioUrl;
+                div.appendChild(audio);
+            }
+            logDiv.prepend(div);
+        }
+    </script>
+</body>
+</html>
