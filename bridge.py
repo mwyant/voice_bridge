@@ -26,7 +26,6 @@ def run_stt(audio_path):
     try:
         result = subprocess.run([VENV_PYTHON, STT_SCRIPT, audio_path], capture_output=True, text=True, check=True)
         full_output = result.stdout.strip()
-        
         lines = full_output.split("\n")
         captured_text = []
         for line in lines:
@@ -34,7 +33,6 @@ def run_stt(audio_path):
                 parts = line.split("]", 1)
                 if len(parts) > 1:
                     captured_text.append(parts[1].strip())
-        
         if not captured_text:
             dash_count = 0
             for line in lines:
@@ -44,7 +42,6 @@ def run_stt(audio_path):
                 if dash_count == 2:
                     if line.strip() and not line.startswith("Transcription finished"):
                         captured_text.append(line.strip())
-        
         final_text = " ".join(captured_text) if captured_text else "No speech detected."
         return final_text
     except Exception as e:
@@ -70,75 +67,59 @@ def run_tts(text, session_id):
         print(f"[!] TTS Error: {e}", flush=True)
     return None
 
-import argparse
-
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--session-id", default="Main")
-    args = parser.parse_args()
-    
-    session_prefix = args.session_id
-    MY_INBOX = os.path.join(BASE_DIR, f"brain_inbox_{session_prefix}.txt")
-    MY_OUTBOX = os.path.join(BASE_DIR, f"brain_outbox_{session_prefix}.txt")
-
-    print(f"[*] OpenCode Voice Bridge (Session: {session_prefix}) started.", flush=True)
-    if os.path.exists(MY_INBOX): os.remove(MY_INBOX)
-    if os.path.exists(MY_OUTBOX): os.remove(MY_OUTBOX)
+    print("[*] OpenCode Voice Bridge (Alpha Mode) started.", flush=True)
+    if os.path.exists(INBOX_FILE): os.remove(INBOX_FILE)
+    if os.path.exists(OUTBOX_FILE): os.remove(OUTBOX_FILE)
 
     while True:
         try:
-            # We filter tasks by this session_id? 
-            # Or the server just gives us any task and we check?
-            # Better: Update server to allow polling for a specific session_id
-            response = requests.get(f"{SERVER_URL}/agent/next?session_id={session_prefix}", verify=False)
+            response = requests.get(f"{SERVER_URL}/agent/next", verify=False)
             data = response.json()
             task = data.get("task")
             
             if task:
-                task_session_id = task["session_id"]
-                device_id = task["device_id"]
+                session_id = task["session_id"]
                 audio_path = task["audio_path"]
                 
                 # 1. Transcribe
                 user_text = run_stt(audio_path)
-                print(f"[User @ {device_id}]: {user_text}", flush=True)
+                print(f"[User]: {user_text}", flush=True)
                 
                 # 2. Hand off to OpenCode Agent
-                with open(MY_INBOX, "w", encoding="utf-8") as f:
-                    f.write(json.dumps({
-                        "text": user_text, 
-                        "device_id": device_id, 
-                        "session_id": task_session_id
-                    }))
+                with open(INBOX_FILE, "w", encoding="utf-8") as f:
+                    f.write(user_text)
                 
-                print(f"[*] Waiting for Agent response for {task_session_id}...", flush=True)
+                print(f"[*] Waiting for Agent response...", flush=True)
                 agent_response_text = ""
-                while True:
-                    if os.path.exists(MY_OUTBOX):
-                        try:
-                            with open(MY_OUTBOX, "r", encoding="utf-8") as f:
-                                resp_data = json.loads(f.read())
-                            if resp_data.get("session_id") == task_session_id:
-                                agent_response_text = resp_data.get("text")
-                                break
-                        except Exception: pass
+                while not os.path.exists(OUTBOX_FILE):
                     time.sleep(0.5)
                 
-                if os.path.exists(MY_INBOX): os.remove(MY_INBOX)
-                if os.path.exists(MY_OUTBOX): os.remove(MY_OUTBOX)
+                with open(OUTBOX_FILE, "r", encoding="utf-8") as f:
+                    agent_response_text = f.read()
+                
+                if os.path.exists(INBOX_FILE): os.remove(INBOX_FILE)
+                if os.path.exists(OUTBOX_FILE): os.remove(OUTBOX_FILE)
                 
                 # 3. Synthesize
-                audio_url = run_tts(agent_response_text, task_session_id)
+                audio_url = run_tts(agent_response_text, session_id)
                 
                 # 4. Post back
-                requests.post(f"{SERVER_URL}/agent/respond/{task_session_id}", json={
-                    "user_text": user_text,
-                    "agent_text": agent_response_text,
-                    "audio_url": audio_url,
-                    "device_id": device_id
-                }, verify=False)
-                print(f"[Agent]: {agent_response_text}", flush=True)
+                try:
+                    agent_data = json.loads(agent_response_text)
+                    agent_text = agent_data.get("text", agent_response_text)
+                    command = agent_data.get("command")
+                except Exception:
+                    agent_text = agent_response_text
+                    command = None
 
+                requests.post(f"{SERVER_URL}/agent/respond/{session_id}", json={
+                    "user_text": user_text,
+                    "agent_text": agent_text,
+                    "audio_url": audio_url,
+                    "command": command
+                }, verify=False)
+                print(f"[Agent]: {agent_text}", flush=True)
                 
         except Exception as e:
             print(f"[!] Bridge loop error: {e}", flush=True)

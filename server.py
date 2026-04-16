@@ -23,22 +23,20 @@ PASSCODE = "1234"
 COOKIE_NAME = "voice_session"
 api_key_cookie = APIKeyCookie(name=COOKIE_NAME, auto_error=False)
 
-# Initialize Database
+# Initialize Database (Simplified for Alpha)
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Updated messages table to include device_id/user_id for per-device history
     c.execute('''CREATE TABLE IF NOT EXISTS messages
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   session_id TEXT,
-                  device_id TEXT,
                   role TEXT,
                   content TEXT,
                   audio_url TEXT,
+                  command TEXT,
                   timestamp REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS tasks
                  (session_id TEXT PRIMARY KEY,
-                  device_id TEXT,
                   audio_path TEXT,
                   status TEXT,
                   timestamp REAL)''')
@@ -53,9 +51,8 @@ app.mount("/responses", StaticFiles(directory=RESPONSES_DIR), name="responses")
 templates = Jinja2Templates(directory=STATIC_DIR)
 
 # Auth Helper
-async def get_current_device(voice_session: Optional[str] = Depends(api_key_cookie)):
-    if not voice_session:
-        return None
+async def get_current_user(voice_session: Optional[str] = Depends(api_key_cookie)):
+    # Simply check if the cookie exists
     return voice_session
 
 @app.get("/login", response_class=HTMLResponse)
@@ -65,22 +62,21 @@ async def login_page(request: Request):
 @app.post("/login")
 async def login(response: Response, passcode: str = Form(...)):
     if passcode == PASSCODE:
-        # Each device gets a unique ID stored in their cookie
-        device_id = str(uuid.uuid4())
         response = RedirectResponse(url="/", status_code=303)
-        response.set_cookie(key=COOKIE_NAME, value=device_id, httponly=True, samesite="lax", secure=True)
+        # Use a fixed session for everyone in the alpha
+        response.set_cookie(key=COOKIE_NAME, value="alpha_user", httponly=True, samesite="lax", secure=True)
         return response
     return RedirectResponse(url="/login?error=1", status_code=303)
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request, device_id: str = Depends(get_current_device)):
-    if not device_id:
+async def index(request: Request, user: str = Depends(get_current_user)):
+    if not user:
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse("index.html", {"request": request, "device_id": device_id})
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/upload")
-async def upload_audio(file: UploadFile = File(...), device_id: str = Depends(get_current_device), target_session: Optional[str] = None):
-    if not device_id:
+async def upload_audio(file: UploadFile = File(...), user: str = Depends(get_current_user)):
+    if not user:
         raise HTTPException(status_code=401)
     
     session_id = str(uuid.uuid4())
@@ -93,51 +89,88 @@ async def upload_audio(file: UploadFile = File(...), device_id: str = Depends(ge
     
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Store the target session if provided, else 'Main'
-    target = target_session or "Main"
-    c.execute("INSERT INTO tasks (session_id, device_id, audio_path, status, timestamp) VALUES (?, ?, ?, ?, ?)",
-              (session_id, target, filepath, "pending", time.time()))
+    c.execute("INSERT INTO tasks (session_id, audio_path, status, timestamp) VALUES (?, ?, ?, ?)",
+              (session_id, filepath, "pending", time.time()))
     conn.commit()
     conn.close()
     
     return {"session_id": session_id}
 
-# Agent Endpoints (No auth needed for the bridge running on same machine)
-@app.get("/agent/next")
-async def get_next_task(session_id: str = "Main"):
+@app.get("/status/{session_id}")
+async def get_status(session_id: str, user: str = Depends(get_current_user)):
+    if not user: raise HTTPException(status_code=401)
+        
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Bridge only pulls tasks intended for its session_id
-    c.execute("SELECT session_id, device_id, audio_path FROM tasks WHERE status = 'pending' AND device_id = ? ORDER BY timestamp ASC LIMIT 1", (session_id,))
+    c.execute("SELECT content, audio_url FROM messages WHERE session_id = ? AND role = 'agent'", (session_id,))
+    row = c.fetchone()
+    if row:
+        conn.close()
+        return {"status": "completed", "text": row[0], "audio_url": row[1]}
+    
+    c.execute("SELECT status FROM tasks WHERE session_id = ?", (session_id,))
+    row = c.fetchone()
+    conn.close()
+    if row: return {"status": row[0]}
+    return {"status": "not_found"}
+
+@app.get("/history")
+async def get_history(user: str = Depends(get_current_user)):
+    if not user: raise HTTPException(status_code=401)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT role, content, audio_url, command, timestamp FROM messages ORDER BY timestamp ASC")
+    history = [{"role": r, "content": c, "audio_url": a, "command": cmd, "timestamp": t} for r, c, a, cmd, t in c.fetchall()]
+    conn.close()
+    return history
+
+# Agent Endpoints
+@app.get("/agent/next")
+async def get_next_task():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT session_id, audio_path FROM tasks WHERE status = 'pending' ORDER BY timestamp ASC LIMIT 1")
     row = c.fetchone()
     if not row:
         conn.close()
         return {"task": None}
     
-    task_id, target_id, audio_path = row
-    c.execute("UPDATE tasks SET status = 'processing' WHERE session_id = ?", (task_id,))
+    session_id, audio_path = row
+    c.execute("UPDATE tasks SET status = 'processing' WHERE session_id = ?", (session_id,))
     conn.commit()
     conn.close()
-    # Note: in this context, device_id in 'tasks' is actually the target SessionID from the launcher
-    return {"task": {"session_id": task_id, "device_id": target_id, "audio_path": audio_path}}
+    return {"task": {"session_id": session_id, "audio_path": audio_path}}
 
+@app.post("/execute/{msg_id}")
+async def execute_command(msg_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT command FROM messages WHERE id = ?", (msg_id,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail="Command not found")
+    
+    # Write confirmation file for the agent to pick up
+    with open(os.path.join(BASE_DIR, "brain_confirmation.txt"), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"msg_id": msg_id, "command": row[0], "status": "confirmed"}))
+        
+    return {"status": "confirmed"}
 
 @app.post("/agent/respond/{session_id}")
 async def post_response(session_id: str, data: dict):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
     ts = time.time()
-    device_id = data.get("device_id")
+    c.execute("INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+              (session_id, "user", data.get("user_text"), ts - 0.1))
     
-    c.execute("INSERT INTO messages (session_id, device_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-              (session_id, device_id, "user", data.get("user_text"), ts - 0.1))
-    
-    c.execute("INSERT INTO messages (session_id, device_id, role, content, audio_url, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-              (session_id, device_id, "agent", data.get("agent_text"), data.get("audio_url"), ts))
+    # Store command if present
+    c.execute("INSERT INTO messages (session_id, role, content, audio_url, command, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+              (session_id, "agent", data.get("agent_text"), data.get("audio_url"), data.get("command"), ts))
     
     c.execute("DELETE FROM tasks WHERE session_id = ?", (session_id,))
-    
     conn.commit()
     conn.close()
     return {"status": "ok"}
