@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+
+# Project Specific
+*.pem
+*.key
+*.log
+*.db
+uploads/
+responses/
+brain_inbox*.txt
+brain_outbox*.txt
+brain_confirmation.txt
+abort_signal.txt
+
+# OS
+.DS_Store
+Thumbs.db
