@@ -160,16 +160,27 @@ def main():
                     agent_text = agent_response_raw
                     command = None
 
+                if not agent_text or agent_text.strip() == "":
+                    agent_text = "I received your message but didn't have a specific response prepared."
+
                 # 5. TTS
                 audio_url = run_tts(agent_text, task_id)
                 
                 # 6. Post back to Server
-                requests.post(f"{SERVER_URL}/agent/respond/{task_id}", json={
-                    "user_text": user_text,
-                    "agent_text": agent_text,
-                    "audio_url": audio_url,
-                    "command": command
-                }, verify=False, timeout=10)
+                # v0.0.9: Explicit error handling for response posting
+                try:
+                    resp = requests.post(f"{SERVER_URL}/agent/respond/{task_id}", json={
+                        "user_text": user_text,
+                        "agent_text": agent_text,
+                        "audio_url": audio_url,
+                        "command": command
+                    }, verify=False, timeout=10)
+                    if resp.status_code == 200:
+                        print(f"[*] Response posted successfully for {task_id}", flush=True)
+                    else:
+                        print(f"[!] Server returned {resp.status_code}: {resp.text}", flush=True)
+                except Exception as e:
+                    print(f"[!] Failed to post response: {e}", flush=True)
                 
                 print(f"[Agent]: {agent_text}", flush=True)
                 if command:

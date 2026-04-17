@@ -17,7 +17,7 @@
                     <i data-lucide="mic" class="w-5 h-5"></i>
                 </div>
                 <div>
-                    <h1 class="text-lg font-bold text-slate-900">OpenCode Voice <span class="text-[10px] font-medium text-slate-400 ml-1">v0.0.8</span></h1>
+                    <h1 class="text-lg font-bold text-slate-900">OpenCode Voice <span class="text-[10px] font-medium text-slate-400 ml-1">v0.0.9</span></h1>
                     <div class="flex items-center gap-2">
                         <span id="statusIndicator" class="w-2 h-2 rounded-full bg-slate-300"></span>
                         <span id="statusText" class="text-xs text-slate-500 font-medium">Ready</span>
@@ -81,7 +81,7 @@
                 Local-First AI Voice Bridge
             </div>
             <div class="text-[10px] font-medium text-slate-400">
-                Architecture v0.0.8 • Optimized for LAN
+                Architecture v0.0.9 • Optimized for LAN
             </div>
         </div>
     </div>
@@ -322,6 +322,7 @@
                 history.forEach((msg, index) => {
                     const isLast = index === history.length - 1;
                     const shouldPlay = playLast && isLast && msg.role === 'agent';
+                    // v0.0.9: Pass all required params to addMessage
                     addMessage(msg.role === 'user' ? 'You' : 'OpenCode', msg.content, msg.audio_url, msg.command, msg.id, !shouldPlay);
                 });
                 
