@@ -19,16 +19,17 @@ if (!(Test-Path (Join-Path $VoiceDir "cert.pem"))) {
 }
 
 # 3. Launch Services
-# Using -NoNewWindow:$false and explicit Start-Process to ensure detachment
+# Using cmd /c start /b is the most reliable way to detach on Windows
 Write-Host "[*] Launching Voice Server and Bridge..." -ForegroundColor Green
 $ServerLogOut = Join-Path $VoiceDir "server_stdout.log"
 $ServerLogErr = Join-Path $VoiceDir "server_stderr.log"
 $BridgeLogOut = Join-Path $VoiceDir "bridge_stdout.log"
 $BridgeLogErr = Join-Path $VoiceDir "bridge_stderr.log"
 
-# Use Start-Process with -PassThru and immediately exit
-Start-Process $PythonPath -ArgumentList (Join-Path $VoiceDir "server.py") -WorkingDirectory $VoiceDir -RedirectStandardOutput $ServerLogOut -RedirectStandardError $ServerLogErr -WindowStyle Hidden -NoNewWindow:$false
-Start-Process $PythonPath -ArgumentList (Join-Path $VoiceDir "bridge.py") -WorkingDirectory $VoiceDir -RedirectStandardOutput $BridgeLogOut -RedirectStandardError $BridgeLogErr -WindowStyle Hidden -NoNewWindow:$false
+# Fire and forget using cmd /c start
+# Note: We escape the quotes for the cmd call
+cmd /c "start /b """"VoiceServer"""" ""$PythonPath"" ""$(Join-Path $VoiceDir 'server.py')"" > ""$ServerLogOut"" 2> ""$ServerLogErr"""
+cmd /c "start /b """"VoiceBridge"""" ""$PythonPath"" ""$(Join-Path $VoiceDir 'bridge.py')"" > ""$BridgeLogOut"" 2> ""$BridgeLogErr"""
 
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-Host "[SUCCESS] Voice Bridge launched in background." -ForegroundColor Green
