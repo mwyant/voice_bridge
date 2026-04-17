@@ -17,8 +17,13 @@ TTS_SCRIPT = os.path.join(TOOLKIT_DIR, "tts", "tts_book.py")
 VENV_PYTHON = os.path.join(TOOLKIT_DIR, "venv", "Scripts", "python.exe")
 
 SERVER_URL = "https://127.0.0.1:8133"
-# The Agent sync files - usually in the user's .opencode directory
-BASE_SYNC_DIR = r"C:\Users\mwyant\.opencode\tools\voice_bridge"
+# The Agent sync files - Prioritizing ~/.opencode
+USER_HOME = os.path.expanduser("~")
+BASE_SYNC_DIR = os.path.join(USER_HOME, ".opencode", "voice_bridge")
+if not os.path.exists(BASE_SYNC_DIR):
+    # Fallback to current directory if .opencode doesn't exist yet
+    BASE_SYNC_DIR = os.path.dirname(os.path.abspath(__file__))
+
 INBOX_FILE = os.path.join(BASE_SYNC_DIR, "brain_inbox.txt")
 OUTBOX_FILE = os.path.join(BASE_SYNC_DIR, "brain_outbox.txt")
 
