@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenCode Voice Chat</title>
-    <link rel="stylesheet" href="/static/dist.css">
+    <link rel="stylesheet" id="themeStylesheet" href="/static/dist.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="bg-slate-50 min-h-screen flex flex-col items-center justify-center p-4">
-    <div class="max-w-4xl w-full flex flex-col gap-6 h-[95vh]">
+    <div class="max-w-4xl w-full flex flex-col gap-6 h-[95vh] theme-container">
         <!-- Header -->
-        <div class="flex items-center justify-between glass p-4 rounded-2xl shadow-sm">
+        <div class="flex items-center justify-between glass p-4 rounded-2xl shadow-sm header-skin">
             <div class="flex items-center gap-3">
                 <div class="bg-indigo-600 p-2 rounded-lg text-white">
                     <i data-lucide="mic" class="w-5 h-5"></i>
@@ -25,6 +25,7 @@
                 </div>
             </div>
             <div class="flex items-center gap-4">
+                <span id="themeToggle" onclick="toggleTheme()" class="text-[10px] font-bold text-slate-400 hover:text-indigo-600 cursor-pointer uppercase tracking-widest border border-slate-200 px-2 py-0.5 rounded-full transition-colors mr-2">Default Skin</span>
                 <span id="timer" class="font-mono text-base font-bold text-slate-700">00:00</span>
                 <button id="exportBtn" class="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
                     <i data-lucide="download" class="w-5 h-5"></i>
@@ -35,7 +36,7 @@
         <div class="flex flex-col md:flex-row gap-6 flex-1 overflow-hidden">
             <!-- Sidebar: Controls & Visualizer (1/3) -->
             <div class="w-full md:w-1/3 flex flex-col gap-6">
-                <div class="glass p-6 rounded-3xl shadow-xl flex flex-col items-center gap-6 relative overflow-hidden">
+                <div class="glass p-6 rounded-3xl shadow-xl flex flex-col items-center gap-6 relative overflow-hidden sidebar-skin">
                     <canvas id="visualizer" class="w-full h-24 rounded-xl bg-slate-100/50"></canvas>
                     
                     <div class="flex flex-col items-center gap-4 w-full">
@@ -66,7 +67,7 @@
             </div>
 
             <!-- Main: Chat History (2/3) -->
-            <div class="flex-1 glass rounded-3xl shadow-sm overflow-hidden flex flex-col p-6">
+            <div class="flex-1 glass rounded-3xl shadow-sm overflow-hidden flex flex-col p-6 history-skin">
                 <h2 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 px-2">Conversation History</h2>
                 <div id="log" class="flex-1 overflow-y-auto pr-2 flex flex-col gap-4">
                     <!-- Messages injected here -->
@@ -75,7 +76,7 @@
         </div>
 
         <!-- Footer -->
-        <div class="flex items-center justify-between px-6 py-3 glass rounded-2xl shadow-sm">
+        <div class="flex items-center justify-between px-6 py-3 glass rounded-2xl shadow-sm footer-skin">
             <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 Local-First AI Voice Bridge
             </div>
@@ -110,6 +111,25 @@
         const canvasCtx = canvas.getContext('2d');
         const vadIndicator = document.getElementById('vadIndicator');
         const vadLevel = document.getElementById('vadLevel');
+
+        // Theme Management
+        function toggleTheme() {
+            const link = document.getElementById('themeStylesheet');
+            const toggle = document.getElementById('themeToggle');
+            const body = document.body;
+            
+            if (link.href.includes('dist.css')) {
+                link.href = '/static/themes/falstar/falstar.css';
+                toggle.textContent = 'Falstar Skin';
+                toggle.classList.replace('text-slate-400', 'text-orange-500');
+                body.classList.add('falstar-theme');
+            } else {
+                link.href = '/static/dist.css';
+                toggle.textContent = 'Default Skin';
+                toggle.classList.replace('text-orange-500', 'text-slate-400');
+                body.classList.remove('falstar-theme');
+            }
+        }
 
         // WebSocket Setup
         let socket;
@@ -504,13 +524,13 @@
             }
 
             let contentHtml = `
-
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${sender}</span>
                 </div>
-                <div class="max-w-[85%] p-4 rounded-2xl shadow-sm ${isAgent ? 'bg-white text-slate-800 rounded-tl-none' : 'bg-indigo-600 text-white rounded-tr-none'}">
+                <div class="max-w-[85%] p-4 rounded-2xl shadow-sm ${isAgent ? 'bg-white text-slate-800 rounded-tl-none message-agent' : 'bg-indigo-600 text-white rounded-tr-none message-user'}">
                     <p class="text-sm leading-relaxed">${text}</p>
             `;
+
 
             if (command) {
                 contentHtml += `
