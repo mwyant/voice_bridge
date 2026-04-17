@@ -114,6 +114,7 @@
             };
 
             socket.onmessage = (event) => {
+                console.log("[WS] Received:", event.data);
                 const data = JSON.parse(event.data);
                 if (data.type === 'status') {
                     if (data.status === 'thinking') {

@@ -51,10 +51,12 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        print(f"[*] Broadcasting to {len(self.active_connections)} clients: {message.get('type')}", flush=True)
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
-            except Exception:
+            except Exception as e:
+                print(f"[!] Broadcast error: {e}", flush=True)
                 pass
 
 manager = ConnectionManager()

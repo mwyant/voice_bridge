@@ -1,9 +1,7 @@
 # OpenCode Voice Bridge Launcher (Robust)
 # Paths
-$VoiceDir = "C:\Users\mwyant\.opencode\tools\voice_bridge"
+$VoiceDir = "C:\Users\mwyant\.opencode\voice_bridge"
 $PythonPath = "C:\Python314\python.exe"
-$LogOut = Join-Path $VoiceDir "stdout.log"
-$LogErr = Join-Path $VoiceDir "stderr.log"
 
 # 1. Clean up old processes
 Write-Host "[*] Cleaning up old voice bridge processes..." -ForegroundColor Cyan
@@ -19,23 +17,20 @@ if (!(Test-Path (Join-Path $VoiceDir "cert.pem"))) {
 }
 
 # 3. Launch Services
-# Using cmd /c start /b is the most reliable way to detach on Windows
+# Using simple Start-Process with -WorkingDirectory to ensure paths resolve
 Write-Host "[*] Launching Voice Server and Bridge..." -ForegroundColor Green
 $ServerLogOut = Join-Path $VoiceDir "server_stdout.log"
 $ServerLogErr = Join-Path $VoiceDir "server_stderr.log"
 $BridgeLogOut = Join-Path $VoiceDir "bridge_stdout.log"
 $BridgeLogErr = Join-Path $VoiceDir "bridge_stderr.log"
 
-# Fire and forget using cmd /c start
-# Note: We escape the quotes for the cmd call
-cmd /c "start /b """"VoiceServer"""" ""$PythonPath"" ""$(Join-Path $VoiceDir 'server.py')"" > ""$ServerLogOut"" 2> ""$ServerLogErr"""
-cmd /c "start /b """"VoiceBridge"""" ""$PythonPath"" ""$(Join-Path $VoiceDir 'bridge.py')"" > ""$BridgeLogOut"" 2> ""$BridgeLogErr"""
+Start-Process $PythonPath -ArgumentList (Join-Path $VoiceDir "server.py") -WorkingDirectory $VoiceDir -RedirectStandardOutput $ServerLogOut -RedirectStandardError $ServerLogErr -WindowStyle Hidden
+Start-Process $PythonPath -ArgumentList (Join-Path $VoiceDir "bridge.py") -WorkingDirectory $VoiceDir -RedirectStandardOutput $BridgeLogOut -RedirectStandardError $BridgeLogErr -WindowStyle Hidden
 
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-Write-Host "[SUCCESS] Voice Bridge launched in background." -ForegroundColor Green
-Write-Host "Services are active at https://heathson.ai.local:8133" -ForegroundColor Gray
-Write-Host "Exiting launcher now at $timestamp" -ForegroundColor Gray
+Write-Host "[SUCCESS] Voice Bridge launched in background at $timestamp" -ForegroundColor Green
 exit 0
+
 
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-Host "[SUCCESS] Voice Bridge is now active at https://heathson.ai.local:8133" -ForegroundColor Green
