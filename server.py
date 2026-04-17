@@ -6,6 +6,7 @@ import sqlite3
 import asyncio
 from typing import Optional, List, Dict
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Request, Response, Depends, HTTPException, Form, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -13,6 +14,14 @@ from fastapi.security import APIKeyCookie
 from pydantic import BaseModel
 
 app = FastAPI()
+
+# Add CORS for multi-device LAN access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
@@ -34,14 +43,14 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
 
-    async function connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
 
-    async function broadcast(self, message: dict):
+    async def broadcast(self, message: dict):
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
@@ -56,6 +65,7 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+# Initialize Database (Robust Multi-Device Schema)
 def init_db():
     conn = get_db()
     c = conn.cursor()
@@ -95,13 +105,13 @@ class Message(BaseModel):
     timestamp: float
 
 # Auth Helper
-async function get_current_user(voice_session: Optional[str] = Depends(api_key_cookie)):
+async def get_current_user(voice_session: Optional[str] = Depends(api_key_cookie)):
     if not voice_session:
         return None
     return voice_session
 
 @app.websocket("/ws")
-async function websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
@@ -112,28 +122,28 @@ async function websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 @app.get("/login", response_class=HTMLResponse)
-async function login_page(request: Request):
-    # Templates directory is in static
+async def login_page(request: Request):
     templates = Jinja2Templates(directory=STATIC_DIR)
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
-async function login(response: Response, passcode: str = Form(...)):
+async def login(response: Response, passcode: str = Form(...)):
     if passcode == PASSCODE:
         response = RedirectResponse(url="/", status_code=303)
+        # Use a fixed session for everyone in the alpha
         response.set_cookie(key=COOKIE_NAME, value="alpha_user", httponly=True, samesite="lax", secure=True)
         return response
     return RedirectResponse(url="/login?error=1", status_code=303)
 
 @app.get("/", response_class=HTMLResponse)
-async function index(request: Request, user: str = Depends(get_current_user)):
+async def index(request: Request, user: str = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/login")
     templates = Jinja2Templates(directory=STATIC_DIR)
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/upload")
-async function upload_audio(file: UploadFile = File(...), user: str = Depends(get_current_user)):
+async def upload_audio(file: UploadFile = File(...), user: str = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
     
@@ -160,7 +170,7 @@ async function upload_audio(file: UploadFile = File(...), user: str = Depends(ge
     return {"task_id": task_id}
 
 @app.get("/history")
-async function get_history(user: str = Depends(get_current_user)):
+async def get_history(user: str = Depends(get_current_user)):
     if not user: raise HTTPException(status_code=401)
     conn = get_db()
     c = conn.cursor()
@@ -173,9 +183,40 @@ async function get_history(user: str = Depends(get_current_user)):
     
     return {"history": history, "is_thinking": is_thinking}
 
+@app.get("/status/{task_id}")
+async def get_task_status(task_id: str):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT status FROM tasks WHERE task_id = ?", (task_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return {"status": "completed"}
+    return {"status": row["status"]}
+
 # Agent Endpoints (used by bridge.py)
+@app.post("/abort")
+async def abort_task(user: str = Depends(get_current_user)):
+    if not user: raise HTTPException(status_code=401)
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM tasks")
+    c.execute("UPDATE global_state SET value = 'false' WHERE key = 'is_thinking'")
+    conn.commit()
+    conn.close()
+    
+    # Broadcast abort to all clients
+    await manager.broadcast({"type": "status", "status": "ready"})
+    
+    # Optional: Write to a file that bridge.py can monitor if it's mid-process
+    abort_signal = os.path.join(BASE_DIR, "abort_signal.txt")
+    with open(abort_signal, "w") as f:
+        f.write("ABORT")
+        
+    return {"status": "aborted"}
+
 @app.get("/agent/next")
-async function get_next_task():
+async def get_next_task():
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT task_id, audio_path FROM tasks WHERE status = 'pending' ORDER BY timestamp ASC LIMIT 1")
@@ -191,7 +232,7 @@ async function get_next_task():
     return {"task": {"task_id": task_id, "audio_path": audio_path}}
 
 @app.post("/agent/respond/{task_id}")
-async function post_response(task_id: str, data: dict):
+async def post_response(task_id: str, data: dict):
     conn = get_db()
     c = conn.cursor()
     ts = time.time()
@@ -244,7 +285,7 @@ async function post_response(task_id: str, data: dict):
     return {"status": "ok"}
 
 @app.post("/execute/{msg_id}")
-async function execute_command(msg_id: int):
+async def execute_command(msg_id: int):
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT command FROM messages WHERE id = ?", (msg_id,))
@@ -254,23 +295,22 @@ async function execute_command(msg_id: int):
     if not row or not row["command"]:
         raise HTTPException(status_code=404, detail="Command not found")
     
-    # In a robust system, this might go to a command queue
-    # For now, keeping the file-based confirmation for the agent
-    confirmation_path = os.path.join(BASE_DIR, "..", "brain_confirmation.txt")
+    # Confirmation file for the agent
+    confirmation_path = os.path.join(BASE_DIR, "brain_confirmation.txt")
     with open(confirmation_path, "w", encoding="utf-8") as f:
         f.write(json.dumps({"msg_id": msg_id, "command": row["command"], "status": "confirmed"}))
         
     return {"status": "confirmed"}
 
-# Mount statics and responses from parent dir
+# Mount statics and responses from current dir
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/responses", StaticFiles(directory=RESPONSES_DIR), name="responses")
 
 if __name__ == "__main__":
     import uvicorn
-    # Use paths relative to current file for certs
-    key_file = os.path.join(BASE_DIR, "..", "key.pem")
-    cert_file = os.path.join(BASE_DIR, "..", "cert.pem")
+    # Use absolute paths for certs
+    key_file = os.path.join(BASE_DIR, "key.pem")
+    cert_file = os.path.join(BASE_DIR, "cert.pem")
     
     uvicorn.run(
         app, 

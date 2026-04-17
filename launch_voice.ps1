@@ -19,10 +19,15 @@ if (!(Test-Path (Join-Path $VoiceDir "cert.pem"))) {
 }
 
 # 3. Launch Services
-# Using -WindowStyle Hidden and ensuring no stream capture to prevent PowerShell hang
+# Using separate logs to prevent locking hangs
 Write-Host "[*] Launching Voice Server and Bridge..." -ForegroundColor Green
-Start-Process $PythonPath -ArgumentList (Join-Path $VoiceDir "server.py") -WorkingDirectory $VoiceDir -RedirectStandardOutput $LogOut -RedirectStandardError $LogErr -WindowStyle Hidden
-Start-Process $PythonPath -ArgumentList (Join-Path $VoiceDir "bridge.py") -WorkingDirectory $VoiceDir -RedirectStandardOutput $LogOut -RedirectStandardError $LogErr -WindowStyle Hidden
+$ServerLogOut = Join-Path $VoiceDir "server_stdout.log"
+$ServerLogErr = Join-Path $VoiceDir "server_stderr.log"
+$BridgeLogOut = Join-Path $VoiceDir "bridge_stdout.log"
+$BridgeLogErr = Join-Path $VoiceDir "bridge_stderr.log"
+
+Start-Process $PythonPath -ArgumentList (Join-Path $VoiceDir "server.py") -WorkingDirectory $VoiceDir -RedirectStandardOutput $ServerLogOut -RedirectStandardError $ServerLogErr -WindowStyle Hidden
+Start-Process $PythonPath -ArgumentList (Join-Path $VoiceDir "bridge.py") -WorkingDirectory $VoiceDir -RedirectStandardOutput $BridgeLogOut -RedirectStandardError $BridgeLogErr -WindowStyle Hidden
 
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-Host "[SUCCESS] Voice Bridge is now active at https://heathson.ai.local:8133" -ForegroundColor Green

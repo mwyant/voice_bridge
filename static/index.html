@@ -7,19 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.3); }
-        .dark-glass { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .pulse-red { animation: pulse-red 2s infinite; }
-        @keyframes pulse-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } }
-        .message-fade-in { animation: fadeIn 0.3s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="bg-slate-50 min-h-screen flex flex-col items-center justify-center p-4">
     <div class="max-w-4xl w-full flex flex-col gap-6 h-[95vh]">
@@ -89,7 +77,6 @@
     </div>
 
     <script>
-        // Lucide Icons initialization
         lucide.createIcons();
 
         let mediaRecorder;
@@ -114,6 +101,80 @@
         const canvasCtx = canvas.getContext('2d');
         const vadIndicator = document.getElementById('vadIndicator');
         const vadLevel = document.getElementById('vadLevel');
+
+        // WebSocket Setup
+        let socket;
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+            socket.onopen = () => {
+                console.log("WebSocket connected");
+                updateStatus("Connected", "bg-green-500");
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'status') {
+                    if (data.status === 'thinking') {
+                        updateStatus("OpenCode is thinking...", "bg-indigo-500");
+                        showThinkingBubble();
+                    } else if (data.status === 'ready') {
+                        updateStatus("Ready", "bg-slate-300");
+                        removeThinkingBubble();
+                        resetRecordBtn();
+                    }
+                } else if (data.type === 'new_message') {
+                    removeThinkingBubble();
+                    loadHistory(true);
+                }
+            };
+
+            socket.onclose = () => {
+                console.log("WebSocket disconnected. Retrying...");
+                setTimeout(connectWebSocket, 2000);
+            };
+        }
+
+        connectWebSocket();
+
+        function showThinkingBubble() {
+            if (document.getElementById('thinking-bubble')) return;
+            const div = document.createElement('div');
+            div.id = 'thinking-bubble';
+            div.className = "flex flex-col items-start message-fade-in";
+            div.innerHTML = `
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">OpenCode</span>
+                </div>
+                <div class="max-w-[85%] p-4 rounded-2xl shadow-sm bg-white text-slate-800 rounded-tl-none flex items-center gap-2">
+                    <span class="flex gap-1">
+                        <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></span>
+                        <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                        <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+                    </span>
+                    <span class="text-sm text-slate-500 italic">Thinking...</span>
+                    <button onclick="abortTask()" class="ml-4 text-[10px] font-bold text-red-500 hover:text-red-700 uppercase tracking-widest border border-red-200 px-2 py-1 rounded-lg transition-colors">Abort</button>
+                </div>
+            `;
+            logDiv.prepend(div);
+        }
+
+        function removeThinkingBubble() {
+            const bubble = document.getElementById('thinking-bubble');
+            if (bubble) bubble.remove();
+        }
+
+        async function abortTask() {
+            try {
+                await fetch('/abort', { method: 'POST' });
+                updateStatus("Ready", "bg-slate-300");
+                removeThinkingBubble();
+                resetRecordBtn();
+            } catch (err) {
+                console.error("Failed to abort:", err);
+            }
+        }
 
         // Voice Activity Detector Class
         class VoiceActivityDetector {
@@ -162,7 +223,6 @@
                 const db = this.getVolume();
                 const now = Date.now();
                 
-                // Update UI Level (normalized 0-100 for display)
                 const normalizedLevel = Math.max(0, Math.min(100, (db + 80) * 1.5));
                 this.onLevelUpdate(normalizedLevel);
 
@@ -197,13 +257,17 @@
         async function loadHistory(playLast = false) {
             try {
                 const res = await fetch('/history');
-                const history = await res.json();
+                const data = await res.json();
+                const history = data.history || [];
+                
                 logDiv.innerHTML = "";
                 history.reverse().forEach((msg, index) => {
-                    // Autoplay only the very last message in the sequence AND only if playLast is true
-                    const shouldPlay = playLast && (index === 0) && msg.role === 'agent';
+                    const isLast = index === 0;
+                    const shouldPlay = playLast && isLast && msg.role === 'agent';
                     addMessage(msg.role === 'user' ? 'You' : 'OpenCode', msg.content, msg.audio_url, msg.command, msg.id, !shouldPlay);
                 });
+                
+                if (data.is_thinking) showThinkingBubble();
             } catch (err) { console.error("Failed to load history:", err); }
         }
 
@@ -212,7 +276,8 @@
         async function exportHistory() {
             try {
                 const res = await fetch('/history');
-                const history = await res.json();
+                const data = await res.json();
+                const history = data.history || [];
                 let text = "OpenCode Voice Chat Export\n==========================\n\n";
                 history.forEach(msg => {
                     const time = new Date(msg.timestamp * 1000).toLocaleString();
@@ -252,14 +317,11 @@
 
                 for(let i = 0; i < bufferLength; i++) {
                     barHeight = (dataArray[i] / 255) * canvas.height;
-                    
                     const gradient = canvasCtx.createLinearGradient(0, canvas.height, 0, 0);
                     gradient.addColorStop(0, '#6366f1');
                     gradient.addColorStop(1, '#a5b4fc');
-                    
                     canvasCtx.fillStyle = gradient;
                     canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-
                     x += barWidth + 1;
                 }
             };
@@ -294,13 +356,8 @@
                     try {
                         const response = await fetch('/upload', { method: 'POST', body: formData });
                         const data = await response.json();
-                        
-                        // Add User message to UI immediately (as a placeholder until transcribed?)
-                        // For now, we'll just wait for the Agent response which will refresh the view.
-                        // But to be responsive, let's add a "Transcribing..." bubble.
-                        addMessage('You', '...Transcribing...', null, null, data.session_id, true);
-                        
-                        pollStatus(data.session_id);
+                        addMessage('You', '...Transcribing...', null, null, data.task_id, true);
+                        pollStatus(data.task_id);
                     } catch (err) {
                         updateStatus("Upload failed", "bg-red-500");
                         resetRecordBtn();
@@ -319,26 +376,20 @@
                 recordIcon.setAttribute('data-lucide', 'square');
                 recordText.textContent = "Stop";
                 lucide.createIcons();
-                
                 updateStatus("Listening...", "bg-green-500");
 
-                // Initialize VAD if Auto-Mode is on
                 if (autoMode.checked) {
                     vadIndicator.classList.remove('opacity-0');
                     vad = new VoiceActivityDetector(stream, {
                         onSpeechEnd: () => {
-                            if (mediaRecorder.state === "recording") {
-                                stopRecording();
-                            }
+                            if (mediaRecorder.state === "recording") stopRecording();
                         },
                         onLevelUpdate: (level) => {
                             vadLevel.style.width = level + '%';
                         }
                     });
                 }
-            } catch (err) {
-                updateStatus("Mic access denied", "bg-red-500");
-            }
+            } catch (err) { updateStatus("Mic access denied", "bg-red-500"); }
         }
 
         function stopRecording() {
@@ -347,7 +398,7 @@
                 cancelAnimationFrame(animationId);
                 clearInterval(timerInterval);
                 recordBtn.disabled = true;
-                recordText.textContent = "Processing";
+                recordText.textContent = "Wait";
                 vadIndicator.classList.add('opacity-0');
             }
         }
@@ -367,34 +418,30 @@
         }
 
         recordBtn.addEventListener('click', () => {
-            if (mediaRecorder && mediaRecorder.state === "recording") {
-                stopRecording();
-            } else {
-                startRecording();
-            }
+            if (mediaRecorder && mediaRecorder.state === "recording") stopRecording();
+            else startRecording();
         });
 
-        async function pollStatus(sessionId) {
-            updateStatus("OpenCode is thinking...", "bg-indigo-500");
+        async function pollStatus(taskId) {
             const interval = setInterval(async () => {
                 try {
-                    const res = await fetch(`/status/${sessionId}`);
+                    const res = await fetch(`/status/${taskId}`);
                     const data = await res.json();
-                    if (data.status === 'completed') {
-                        clearInterval(interval);
-                        updateStatus("Ready", "bg-slate-300");
-                        resetRecordBtn();
-                        await loadHistory(true);
-                    }
-                } catch (err) {}
-            }, 1000);
+                    if (data.status === 'completed') clearInterval(interval);
+                } catch (err) { clearInterval(interval); }
+            }, 2000);
         }
 
         function addMessage(sender, text, audioUrl, command, msgId, isHistory = false) {
             const div = document.createElement('div');
             const isAgent = sender !== 'You';
-            div.className = `flex flex-col ${isAgent ? 'items-start' : 'items-end'} message-fade-in`;
+            div.className = `flex flex-col ${isAgent ? 'items-start' : 'items-end'} message-fade-in mb-4 w-full`;
             
+            if (!isHistory) {
+                const placeholders = Array.from(logDiv.querySelectorAll('p')).filter(p => p.textContent === '...Transcribing...');
+                if (placeholders.length > 0) placeholders[0].closest('.message-fade-in').remove();
+            }
+
             let contentHtml = `
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${sender}</span>
@@ -419,7 +466,7 @@
             if (audioUrl) {
                 contentHtml += `
                     <div class="mt-3 pt-3 border-t ${isAgent ? 'border-slate-100' : 'border-indigo-500'}">
-                        <audio controls class="h-8 w-full ${isAgent ? '' : 'filter invert'}" src="${audioUrl}" ${!isHistory ? 'autoplay' : ''}></audio>
+                        <audio controls class="h-8 w-full ${isAgent ? '' : 'filter invert'}" src="${audioUrl}"></audio>
                     </div>
                 `;
             }
@@ -427,14 +474,17 @@
             contentHtml += `</div>`;
             div.innerHTML = contentHtml;
             
-            // Auto-Record loop
-            if (audioUrl && isAgent && !isHistory) {
-                const audio = div.querySelector('audio');
-                audio.onended = () => {
-                    if (autoMode.checked && !recordBtn.disabled) {
-                        startRecording();
-                    }
-                };
+            const audio = div.querySelector('audio');
+            if (audio && !isHistory) {
+                setTimeout(() => {
+                    audio.play().catch(e => console.log("Autoplay blocked:", e));
+                }, 100);
+
+                if (isAgent) {
+                    audio.onended = () => {
+                        if (autoMode.checked && !recordBtn.disabled) startRecording();
+                    };
+                }
             }
 
             logDiv.prepend(div);

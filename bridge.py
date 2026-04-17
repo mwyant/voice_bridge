@@ -117,12 +117,21 @@ def main():
                 
                 print(f"[*] Sent to Agent. Waiting for response...", flush=True)
                 
-                # Non-blocking wait (with timeout)
+                # Non-blocking wait (with timeout and abort check)
                 agent_response_raw = ""
                 wait_start = time.time()
                 timeout = 120 # 2 minutes max for agent to think
                 
+                # Path for abort signal
+                ABORT_SIGNAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "abort_signal.txt")
+                if os.path.exists(ABORT_SIGNAL): os.remove(ABORT_SIGNAL)
+
                 while not os.path.exists(OUTBOX_FILE):
+                    if os.path.exists(ABORT_SIGNAL):
+                        print("[!] Abort signal received.", flush=True)
+                        os.remove(ABORT_SIGNAL)
+                        agent_response_raw = "Task aborted by user."
+                        break
                     if time.time() - wait_start > timeout:
                         agent_response_raw = "Agent timed out."
                         break
