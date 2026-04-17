@@ -185,6 +185,7 @@
                 this.speechDelay = options.speechDelay || 150; // ms
                 
                 this.isSpeaking = false;
+                this.noiseFloor = -60; // Initial noise floor estimate
                 this.onSpeechStart = options.onSpeechStart || (() => {});
                 this.onSpeechEnd = options.onSpeechEnd || (() => {});
                 this.onLevelUpdate = options.onLevelUpdate || (() => {});
@@ -199,9 +200,20 @@
             async init() {
                 this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 this.source = this.audioContext.createMediaStreamSource(this.stream);
+                
+                // Add Bandpass Filter (Voice Range: 300Hz - 3400Hz)
+                this.filter = this.audioContext.createBiquadFilter();
+                this.filter.type = 'bandpass';
+                this.filter.frequency.value = 1850; // Center frequency
+                this.filter.Q.value = 0.5; // Wider bandwidth
+                
                 this.analyser = this.audioContext.createAnalyser();
                 this.analyser.fftSize = 2048;
-                this.source.connect(this.analyser);
+                
+                // Connect: Source -> Filter -> Analyser
+                this.source.connect(this.filter);
+                this.filter.connect(this.analyser);
+                
                 this.dataArray = new Float32Array(this.analyser.fftSize);
                 this.loop();
             }
@@ -223,10 +235,18 @@
                 const db = this.getVolume();
                 const now = Date.now();
                 
+                // Slowly track noise floor when not speaking
+                if (!this.isSpeaking && db < this.noiseFloor + 10) {
+                    this.noiseFloor = this.noiseFloor * 0.995 + db * 0.005;
+                }
+
+                // Adaptive threshold: noiseFloor + some margin (default 15dB)
+                const adaptiveThreshold = Math.max(this.threshold, this.noiseFloor + 12);
+
                 const normalizedLevel = Math.max(0, Math.min(100, (db + 80) * 1.5));
                 this.onLevelUpdate(normalizedLevel);
 
-                if (db > this.threshold) {
+                if (db > adaptiveThreshold) {
                     if (!this.isSpeaking) {
                         if (this.lastSpeechTime === 0) this.lastSpeechTime = now;
                         if (now - this.lastSpeechTime > this.speechDelay) {
