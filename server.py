@@ -15,10 +15,10 @@ from pydantic import BaseModel
 app = FastAPI()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOADS_DIR = os.path.join(BASE_DIR, "..", "uploads")
-RESPONSES_DIR = os.path.join(BASE_DIR, "..", "responses")
-STATIC_DIR = os.path.join(BASE_DIR, "..", "static")
-DB_PATH = os.path.join(BASE_DIR, "..", "voice_chat.db")
+UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
+RESPONSES_DIR = os.path.join(BASE_DIR, "responses")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+DB_PATH = os.path.join(BASE_DIR, "voice_chat.db")
 
 # Ensure directories exist
 os.makedirs(UPLOADS_DIR, exist_ok=True)

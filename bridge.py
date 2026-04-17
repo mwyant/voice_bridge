@@ -18,12 +18,12 @@ VENV_PYTHON = os.path.join(TOOLKIT_DIR, "venv", "Scripts", "python.exe")
 
 SERVER_URL = "https://127.0.0.1:8133"
 # The Agent sync files - usually in the user's .opencode directory
-BASE_SYNC_DIR = os.path.expanduser("~/.opencode/tools/voice_bridge")
+BASE_SYNC_DIR = r"C:\Users\mwyant\.opencode\tools\voice_bridge"
 INBOX_FILE = os.path.join(BASE_SYNC_DIR, "brain_inbox.txt")
 OUTBOX_FILE = os.path.join(BASE_SYNC_DIR, "brain_outbox.txt")
 
 # Where to put audio responses for the server to serve
-RESPONSES_DIR = r"C:\Users\mwyant\OneDrive\TBD-Reusegineers\voice_bridge\responses"
+RESPONSES_DIR = os.path.join(BASE_SYNC_DIR, "responses")
 
 os.makedirs(BASE_SYNC_DIR, exist_ok=True)
 os.makedirs(RESPONSES_DIR, exist_ok=True)
