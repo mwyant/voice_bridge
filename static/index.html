@@ -17,7 +17,7 @@
                     <i data-lucide="mic" class="w-5 h-5"></i>
                 </div>
                 <div>
-                    <h1 class="text-lg font-bold text-slate-900">OpenCode Voice <span class="text-[10px] font-medium text-slate-400 ml-1">v0.0.5</span></h1>
+                    <h1 class="text-lg font-bold text-slate-900">OpenCode Voice <span class="text-[10px] font-medium text-slate-400 ml-1">v0.0.6</span></h1>
                     <div class="flex items-center gap-2">
                         <span id="statusIndicator" class="w-2 h-2 rounded-full bg-slate-300"></span>
                         <span id="statusText" class="text-xs text-slate-500 font-medium">Ready</span>
@@ -80,7 +80,7 @@
                 Local-First AI Voice Bridge
             </div>
             <div class="text-[10px] font-medium text-slate-400">
-                Architecture v0.0.5 • Optimized for LAN
+                Architecture v0.0.6 • Optimized for LAN
             </div>
         </div>
     </div>
@@ -191,11 +191,12 @@
             constructor(stream, options = {}) {
                 this.stream = stream;
                 this.threshold = options.threshold || -45; // dB
-                this.silenceDelay = options.silenceDelay || 1500; // ms
-                this.speechDelay = options.speechDelay || 150; // ms
+                this.silenceDelay = options.silenceDelay || 2000; // v0.0.6: Increased for smoother flow
+                this.speechDelay = options.speechDelay || 100; // v0.0.6: Faster triggering
                 
                 this.isSpeaking = false;
                 this.noiseFloor = -60; // Initial noise floor estimate
+                this.speechStartTimestamp = 0; // v0.0.6: Track duration
                 this.onSpeechStart = options.onSpeechStart || (() => {});
                 this.onSpeechEnd = options.onSpeechEnd || (() => {});
                 this.onLevelUpdate = options.onLevelUpdate || (() => {});
@@ -261,6 +262,7 @@
                         if (this.lastSpeechTime === 0) this.lastSpeechTime = now;
                         if (now - this.lastSpeechTime > this.speechDelay) {
                             this.isSpeaking = true;
+                            this.speechStartTimestamp = now;
                             this.onSpeechStart();
                         }
                     }
@@ -268,9 +270,14 @@
                 } else {
                     if (this.isSpeaking) {
                         if (this.lastSilenceTime === 0) this.lastSilenceTime = now;
-                        if (now - this.lastSilenceTime > this.silenceDelay) {
+                        
+                        // Minimum speech duration of 300ms to filter out pops
+                        const duration = now - this.speechStartTimestamp;
+                        const isShortPop = duration < 300;
+                        
+                        if (now - this.lastSilenceTime > (isShortPop ? 100 : this.silenceDelay)) {
                             this.isSpeaking = false;
-                            this.onSpeechEnd();
+                            this.onSpeechEnd(isShortPop); // v0.0.6: Pass if it was just a pop
                         }
                     }
                     this.lastSpeechTime = 0;
@@ -418,11 +425,25 @@
                 if (autoMode.checked) {
                     vadIndicator.classList.remove('opacity-0');
                     vad = new VoiceActivityDetector(stream, {
-                        onSpeechEnd: () => {
-                            if (mediaRecorder.state === "recording") stopRecording();
+                        onSpeechEnd: (isShortPop) => {
+                            if (mediaRecorder.state === "recording") {
+                                if (isShortPop) {
+                                    console.log("VAD: Filtered short pop.");
+                                    audioChunks = []; // Clear buffer
+                                } else {
+                                    stopRecording();
+                                }
+                            }
                         },
                         onLevelUpdate: (level) => {
                             vadLevel.style.width = level + '%';
+                            if (vad.isSpeaking) {
+                                vadLevel.classList.add('bg-emerald-400');
+                                vadLevel.classList.remove('bg-indigo-400');
+                            } else {
+                                vadLevel.classList.add('bg-indigo-400');
+                                vadLevel.classList.remove('bg-emerald-400');
+                            }
                         }
                     });
                 }
