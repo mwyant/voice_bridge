@@ -125,7 +125,7 @@ def main():
                 # Non-blocking wait (with timeout and abort check)
                 agent_response_raw = ""
                 wait_start = time.time()
-                timeout = 120 # 2 minutes max for agent to think
+                timeout = 300 # v0.0.9.1: Increased to 5 minutes for manual testing
                 
                 # Path for abort signal
                 ABORT_SIGNAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "abort_signal.txt")
