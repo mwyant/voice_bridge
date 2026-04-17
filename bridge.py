@@ -5,35 +5,47 @@ import subprocess
 import shutil
 import urllib3
 import json
+import sys
 
 # Suppress insecure request warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Paths
+# Configuration - Adjust these to your local paths
 TOOLKIT_DIR = r"C:\Users\mwyant\OneDrive\Falstar Publishing Dev\opencode-local-audio-toolkit"
 STT_SCRIPT = os.path.join(TOOLKIT_DIR, "stt", "transcribe.py")
 TTS_SCRIPT = os.path.join(TOOLKIT_DIR, "tts", "tts_book.py")
 VENV_PYTHON = os.path.join(TOOLKIT_DIR, "venv", "Scripts", "python.exe")
 
 SERVER_URL = "https://127.0.0.1:8133"
-BASE_DIR = r"C:\Users\mwyant\.opencode\tools\voice_bridge"
-RESPONSES_DIR = os.path.join(BASE_DIR, "responses")
-INBOX_FILE = os.path.join(BASE_DIR, "brain_inbox.txt")
-OUTBOX_FILE = os.path.join(BASE_DIR, "brain_outbox.txt")
+# The Agent sync files - usually in the user's .opencode directory
+BASE_SYNC_DIR = os.path.expanduser("~/.opencode/tools/voice_bridge")
+INBOX_FILE = os.path.join(BASE_SYNC_DIR, "brain_inbox.txt")
+OUTBOX_FILE = os.path.join(BASE_SYNC_DIR, "brain_outbox.txt")
+
+# Where to put audio responses for the server to serve
+RESPONSES_DIR = r"C:\Users\mwyant\OneDrive\TBD-Reusegineers\voice_bridge\responses"
+
+os.makedirs(BASE_SYNC_DIR, exist_ok=True)
+os.makedirs(RESPONSES_DIR, exist_ok=True)
 
 def run_stt(audio_path):
     print(f"[*] Running STT on {audio_path}...", flush=True)
     try:
-        result = subprocess.run([VENV_PYTHON, STT_SCRIPT, audio_path], capture_output=True, text=True, check=True)
+        # Using a timeout to prevent infinite hangs
+        result = subprocess.run([VENV_PYTHON, STT_SCRIPT, audio_path], capture_output=True, text=True, check=True, timeout=60)
         full_output = result.stdout.strip()
         lines = full_output.split("\n")
         captured_text = []
+        
+        # Parse the specific output format of the toolkit
         for line in lines:
             if line.startswith("[ ") and " -> " in line:
                 parts = line.split("]", 1)
                 if len(parts) > 1:
                     captured_text.append(parts[1].strip())
+        
         if not captured_text:
+            # Fallback parsing
             dash_count = 0
             for line in lines:
                 if "---" in line:
@@ -42,89 +54,125 @@ def run_stt(audio_path):
                 if dash_count == 2:
                     if line.strip() and not line.startswith("Transcription finished"):
                         captured_text.append(line.strip())
+        
         final_text = " ".join(captured_text) if captured_text else "No speech detected."
         return final_text
+    except subprocess.TimeoutExpired:
+        print("[!] STT Timed out", flush=True)
+        return "Transcription timed out."
     except Exception as e:
         print(f"[!] STT Error: {e}", flush=True)
         return "Error transcribing audio."
 
-def run_tts(text, session_id):
-    print(f"[*] Running TTS for session {session_id}...", flush=True)
-    temp_md = os.path.join(RESPONSES_DIR, f"{session_id}.md")
+def run_tts(text, task_id):
+    print(f"[*] Running TTS for task {task_id}...", flush=True)
+    # The toolkit expects a markdown file
+    temp_md = os.path.join(RESPONSES_DIR, f"{task_id}.md")
     with open(temp_md, "w", encoding="utf-8") as f:
         f.write(text)
+    
     try:
-        subprocess.run([VENV_PYTHON, TTS_SCRIPT, temp_md], check=True)
-        output_folder = os.path.join(TOOLKIT_DIR, "output_audio", session_id)
+        subprocess.run([VENV_PYTHON, TTS_SCRIPT, temp_md], check=True, timeout=120)
+        # The toolkit saves to a specific output folder structure
+        output_folder = os.path.join(TOOLKIT_DIR, "output_audio", task_id)
         if os.path.exists(output_folder):
             for f in os.listdir(output_folder):
                 if f.endswith(".wav"):
                     src = os.path.join(output_folder, f)
-                    dst = os.path.join(RESPONSES_DIR, f"{session_id}.wav")
+                    dst = os.path.join(RESPONSES_DIR, f"{task_id}.wav")
                     shutil.copy(src, dst)
-                    return f"/responses/{session_id}.wav"
+                    return f"/responses/{task_id}.wav"
     except Exception as e:
         print(f"[!] TTS Error: {e}", flush=True)
     return None
 
 def main():
-    print("[*] OpenCode Voice Bridge (Alpha Mode) started.", flush=True)
+    print("[*] OpenCode Voice Bridge (Robust Mode) started.", flush=True)
+    print(f"[*] Monitoring Server: {SERVER_URL}", flush=True)
+    print(f"[*] Agent Sync Dir: {BASE_SYNC_DIR}", flush=True)
+
+    # Cleanup any stale sync files
     if os.path.exists(INBOX_FILE): os.remove(INBOX_FILE)
     if os.path.exists(OUTBOX_FILE): os.remove(OUTBOX_FILE)
 
     while True:
         try:
-            response = requests.get(f"{SERVER_URL}/agent/next", verify=False)
+            # 1. Poll for next task
+            response = requests.get(f"{SERVER_URL}/agent/next", verify=False, timeout=5)
             data = response.json()
             task = data.get("task")
             
             if task:
-                session_id = task["session_id"]
+                task_id = task["task_id"]
                 audio_path = task["audio_path"]
                 
-                # 1. Transcribe
+                # 2. STT
                 user_text = run_stt(audio_path)
                 print(f"[User]: {user_text}", flush=True)
                 
-                # 2. Hand off to OpenCode Agent
+                # 3. Hand off to OpenCode Agent via File Sync
+                # This is the "Listener" part - writing to the agent's inbox
                 with open(INBOX_FILE, "w", encoding="utf-8") as f:
                     f.write(user_text)
                 
-                print(f"[*] Waiting for Agent response...", flush=True)
-                agent_response_text = ""
+                print(f"[*] Sent to Agent. Waiting for response...", flush=True)
+                
+                # Non-blocking wait (with timeout)
+                agent_response_raw = ""
+                wait_start = time.time()
+                timeout = 120 # 2 minutes max for agent to think
+                
                 while not os.path.exists(OUTBOX_FILE):
+                    if time.time() - wait_start > timeout:
+                        agent_response_raw = "Agent timed out."
+                        break
                     time.sleep(0.5)
                 
-                with open(OUTBOX_FILE, "r", encoding="utf-8") as f:
-                    agent_response_text = f.read()
+                if not agent_response_raw and os.path.exists(OUTBOX_FILE):
+                    with open(OUTBOX_FILE, "r", encoding="utf-8") as f:
+                        agent_response_raw = f.read()
                 
+                # Cleanup sync files immediately
                 if os.path.exists(INBOX_FILE): os.remove(INBOX_FILE)
                 if os.path.exists(OUTBOX_FILE): os.remove(OUTBOX_FILE)
                 
-                # 3. Synthesize
-                audio_url = run_tts(agent_response_text, session_id)
-                
-                # 4. Post back
+                # 4. Parse Agent Response
+                # Agent might return JSON with "text" and "command"
                 try:
-                    agent_data = json.loads(agent_response_text)
-                    agent_text = agent_data.get("text", agent_response_text)
+                    agent_data = json.loads(agent_response_raw)
+                    agent_text = agent_data.get("text", agent_response_raw)
                     command = agent_data.get("command")
                 except Exception:
-                    agent_text = agent_response_text
+                    agent_text = agent_response_raw
                     command = None
 
-                requests.post(f"{SERVER_URL}/agent/respond/{session_id}", json={
+                # 5. TTS
+                audio_url = run_tts(agent_text, task_id)
+                
+                # 6. Post back to Server
+                requests.post(f"{SERVER_URL}/agent/respond/{task_id}", json={
                     "user_text": user_text,
                     "agent_text": agent_text,
                     "audio_url": audio_url,
                     "command": command
-                }, verify=False)
-                print(f"[Agent]: {agent_text}", flush=True)
+                }, verify=False, timeout=10)
                 
+                print(f"[Agent]: {agent_text}", flush=True)
+                if command:
+                    print(f"[Command]: {command}", flush=True)
+                
+        except requests.exceptions.ConnectionError:
+            print("[!] Cannot connect to server. Retrying in 5s...", flush=True)
+            time.sleep(5)
         except Exception as e:
-            print(f"[!] Bridge loop error: {e}", flush=True)
+            print(f"[!] Bridge error: {e}", flush=True)
+            time.sleep(1)
             
-        time.sleep(1)
+        time.sleep(0.5)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n[*] Bridge stopped by user.", flush=True)
+        sys.exit(0)
