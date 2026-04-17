@@ -2173,40 +2173,86 @@
 }
 :root {
   --brand-primary: #ff3e00;
+  --brand-secondary: #00e5ff;
   --brand-dark: #1a1a1a;
+  --brand-bg: #fcfcfc;
 }
 body.falstar-theme {
-  background-color: #fcfcfc;
+  background-color: var(--brand-bg);
+  background-image: radial-gradient(var(--brand-dark) 0.5px, transparent 1px);
+  background-size: 24px 24px;
   color: var(--brand-dark);
 }
 .falstar-theme .header-skin, .falstar-theme .sidebar-skin, .falstar-theme .history-skin, .falstar-theme .footer-skin {
   background: white !important;
   border: 3px solid var(--brand-dark) !important;
-  box-shadow: 8px 8px 0px 0px var(--brand-dark) !important;
-  border-radius: 0px !important;
+  box-shadow: 6px 6px 0px 0px var(--brand-dark) !important;
+  border-radius: 12px !important;
   backdrop-filter: none !important;
+  transition: all 0.2s ease;
+}
+.falstar-theme .sidebar-skin:hover, .falstar-theme .history-skin:hover {
+  box-shadow: 10px 10px 0px 0px var(--brand-dark) !important;
+  transform: translate(-2px, -2px);
 }
 .falstar-theme #recordBtn {
   background: var(--brand-primary) !important;
   border: 3px solid var(--brand-dark) !important;
   box-shadow: 6px 6px 0px 0px var(--brand-dark) !important;
-  border-radius: 0px !important;
+  border-radius: 50% !important;
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+}
+.falstar-theme #recordBtn:hover {
+  transform: scale(1.05) rotate(-3deg);
+  box-shadow: 10px 10px 0px 0px var(--brand-dark) !important;
 }
 .falstar-theme #recordBtn:active {
-  transform: translate(3px, 3px);
+  transform: scale(0.95) translate(4px, 4px) rotate(0deg);
   box-shadow: 0px 0px 0px 0px var(--brand-dark) !important;
+}
+.falstar-theme .pulse-red {
+  animation: wiggle 0.3s ease-in-out infinite alternate !important;
+  box-shadow: 6px 6px 0px 0px var(--brand-dark) !important;
+}
+@keyframes wiggle {
+  from {
+    transform: rotate(-2deg) scale(1.05);
+  }
+  to {
+    transform: rotate(2deg) scale(1.05);
+  }
 }
 .falstar-theme .message-user {
   background: white !important;
   border: 3px solid var(--brand-dark) !important;
   box-shadow: 4px 4px 0px 0px var(--brand-dark) !important;
   color: var(--brand-dark) !important;
-  border-radius: 0px !important;
+  border-radius: 16px 16px 0px 16px !important;
+  transform: rotate(0.5deg);
+  margin-bottom: 12px;
 }
 .falstar-theme .message-agent {
   background: var(--brand-dark) !important;
   color: white !important;
-  border-radius: 0px !important;
+  border-radius: 16px 16px 16px 0px !important;
+  box-shadow: 4px 4px 0px 0px var(--brand-primary) !important;
+  transform: rotate(-0.5deg);
+  margin-bottom: 12px;
+}
+.falstar-theme #visualizer {
+  background: #f8f8f8 !important;
+  border: 2px solid var(--brand-dark) !important;
+  border-radius: 8px !important;
+}
+.falstar-theme #timer {
+  background: var(--brand-dark);
+  color: white;
+  padding: 2px 10px;
+  border-radius: 4px;
+}
+.falstar-theme #themeToggle {
+  border-color: var(--brand-dark) !important;
+  background: white;
 }
 @property --tw-rotate-x {
   syntax: "*";
