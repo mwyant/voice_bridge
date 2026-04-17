@@ -118,8 +118,8 @@
             const toggle = document.getElementById('themeToggle');
             const body = document.body;
             
-            if (link.href.includes('dist.css')) {
-                link.href = '/static/themes/falstar/falstar.css';
+            if (link.href.includes('dist.css') && !link.href.includes('falstar.dist.css')) {
+                link.href = '/static/themes/falstar/falstar.dist.css';
                 toggle.textContent = 'Falstar Skin';
                 toggle.classList.replace('text-slate-400', 'text-orange-500');
                 body.classList.add('falstar-theme');
