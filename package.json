@@ -1,0 +1,25 @@
+{
+  "name": "voice_bridge",
+  "version": "1.0.0",
+  "description": "A robust, multi-device, local-first voice chat system for OpenCode.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mwyant/voice_bridge.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/mwyant/voice_bridge/issues"
+  },
+  "homepage": "https://github.com/mwyant/voice_bridge#readme",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.2.2",
+    "tailwindcss": "^4.2.2"
+  }
+}
