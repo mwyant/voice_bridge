@@ -18,7 +18,7 @@
                     <i data-lucide="mic" class="w-5 h-5"></i>
                 </div>
                 <div>
-                    <h1 class="text-lg font-bold text-slate-900">OpenCode Voice <span class="text-[10px] font-medium text-slate-400 ml-1">v0.0.3</span></h1>
+                    <h1 class="text-lg font-bold text-slate-900">OpenCode Voice <span class="text-[10px] font-medium text-slate-400 ml-1">v0.0.4</span></h1>
                     <div class="flex items-center gap-2">
                         <span id="statusIndicator" class="w-2 h-2 rounded-full bg-slate-300"></span>
                         <span id="statusText" class="text-xs text-slate-500 font-medium">Ready</span>
@@ -81,7 +81,7 @@
                 Local-First AI Voice Bridge
             </div>
             <div class="text-[10px] font-medium text-slate-400">
-                Architecture v0.0.3 • Optimized for LAN
+                Architecture v0.0.4 • Optimized for LAN
             </div>
         </div>
     </div>
@@ -292,15 +292,22 @@
                 const history = data.history || [];
                 
                 logDiv.innerHTML = "";
-                history.reverse().forEach((msg, index) => {
-                    const isLast = index === 0;
+                // v0.0.4: Removed .reverse() to keep chronological order (newest at bottom)
+                history.forEach((msg, index) => {
+                    const isLast = index === history.length - 1;
                     const shouldPlay = playLast && isLast && msg.role === 'agent';
                     addMessage(msg.role === 'user' ? 'You' : 'OpenCode', msg.content, msg.audio_url, msg.command, msg.id, !shouldPlay);
                 });
                 
                 if (data.is_thinking) showThinkingBubble();
+                
+                // v0.0.4: Auto-scroll to bottom
+                setTimeout(() => {
+                    logDiv.scrollTop = logDiv.scrollHeight;
+                }, 100);
             } catch (err) { console.error("Failed to load history:", err); }
         }
+
 
         loadHistory();
 
@@ -466,14 +473,18 @@
         function addMessage(sender, text, audioUrl, command, msgId, isHistory = false) {
             const div = document.createElement('div');
             const isAgent = sender !== 'You';
-            div.className = `flex flex-col ${isAgent ? 'items-start' : 'items-end'} message-fade-in mb-4 w-full`;
+            div.className = `flex flex-col ${isAgent ? 'items-start' : 'items-end'} message-fade-in mb-4`;
             
+            // v0.0.4: Check and replace transcribing placeholders
             if (!isHistory) {
                 const placeholders = Array.from(logDiv.querySelectorAll('p')).filter(p => p.textContent === '...Transcribing...');
-                if (placeholders.length > 0) placeholders[0].closest('.message-fade-in').remove();
+                if (placeholders.length > 0) {
+                    placeholders[0].closest('.message-fade-in').remove();
+                }
             }
 
             let contentHtml = `
+
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${sender}</span>
                 </div>
@@ -507,15 +518,24 @@
             
             const audio = div.querySelector('audio');
             if (audio && !isHistory) {
+                // v0.0.4: Explicit play trigger for mobile/chrome detachment
                 setTimeout(() => {
                     audio.play().catch(e => console.log("Autoplay blocked:", e));
                 }, 100);
 
                 if (isAgent) {
                     audio.onended = () => {
-                        if (autoMode.checked && !recordBtn.disabled) startRecording();
+                        if (autoMode.checked && !recordBtn.disabled) {
+                            startRecording();
+                        }
                     };
                 }
+            }
+
+            logDiv.appendChild(div);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
             }
 
             logDiv.prepend(div);
